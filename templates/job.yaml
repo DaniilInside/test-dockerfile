@@ -1,0 +1,82 @@
+{{- if .Values.jobs }}
+  {{- range $job := .Values.jobs }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .job_name }}
+  {{- if .annotations }}
+  annotations:
+    {{- range $key, $value := .annotations }}
+    {{ $key }}: {{ $value }}
+    {{- end }}
+  {{- else }}
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+  {{- end }}
+
+spec:
+  ttlSecondsAfterFinished: {{ .ttlSecondsAfterFinished | default 30 }}
+  template:
+    spec:
+      volumes:
+        - name: localtime
+          hostPath:
+            path: /usr/share/zoneinfo/{{ $.Values.timezone }}
+        {{- if .job_volumes }}
+        {{- range $volume := .job_volumes }}
+        - name: {{ .name }}
+          secret:
+            secretName: {{ .secret_name }}
+            items:
+              - key: {{ .secret_key }}
+                path: "{{ .file }}"
+        {{- end }}
+        {{- else if $.Values.volumes }}
+        {{- range $volume := $.Values.volumes }}
+        - name: {{ .name }}
+          secret:
+            secretName: {{ .secret_name }}
+            items:
+              - key: {{ .secret_key }}
+                path: "{{ .file }}"
+        {{- end }}
+        {{- end }}
+
+      containers:
+        - name: {{ .job_name }}
+          image: "{{ (.image| default $.Values.image).name }}:{{ (.image | default $.Values.image).tag }}"
+          command: [{{ .command | quote }}]
+          {{- if .args }}
+          args: 
+            {{- range $arg := .args }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          volumeMounts:
+            - name: localtime
+              mountPath: /etc/localtime
+            {{- if .job_volumes }}
+            {{- range $volume := .job_volumes }}
+            - name: {{ .name }}
+              mountPath: "/code/{{ .file }}"
+              subPath: "{{ .file }}"
+              readOnly: true
+            {{- end }}
+            {{- else if $.Values.volumes }}
+            {{- range $volume := $.Values.volumes }}
+            - name: {{ .name }}
+              mountPath: "/code/{{ .file }}"
+              subPath: "{{ .file }}"
+              readOnly: true
+            {{- end }}
+            {{- end }}
+
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: {{ $.Values.image.image_pull_secrets_name }}
+
+  {{- end }}
+{{- end }}
+
